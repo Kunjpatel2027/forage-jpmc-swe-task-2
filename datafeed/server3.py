@@ -150,20 +150,24 @@ def order_book(orders, book, stock_name):
 
 def generate_csv():
     """ Generate a CSV of order history. """
-    with open('test.csv', 'wb') as f:
+    with open('test.csv', 'w', newline='') as f:
         writer = csv.writer(f)
+        row_count = 0
         for t, stock, side, order, size in orders(market()):
             if t > MARKET_OPEN + SIM_LENGTH:
                 break
             writer.writerow([t, stock, side, order, size])
+            row_count += 1
+    print(f"Generated {row_count} rows in test.csv")
 
 
 def read_csv():
     """ Read a CSV or order history into a list. """
     with open('test.csv', 'rt') as f:
-        for time, stock, side, order, size in csv.reader(f):
+        rows = list(csv.reader(f))
+        print(f"Read {len(rows)} rows from test.csv")
+        for time, stock, side, order, size in rows:
             yield dateutil.parser.parse(time), stock, side, float(order), int(size)
-
 
 ################################################################################
 #
@@ -263,14 +267,12 @@ class App(object):
         self._data_2 = order_book(read_csv(), self._book_2, 'DEF')
         self._rt_start = datetime.now()
         try:
-            self._sim_start, _, _ = next( self._data_1 )
+            self._sim_start, _, _ = next(self._data_1)
             self.read_10_first_lines()
         except StopIteration:
-            print( "Error: CSV data exhausted during initialization." )
-            self._data_1 = iter( [] )  # Create an empty iterator
-            self._data_2 = iter( [] )  # Create an empty iterator
-        # self._sim_start, _, _ = next(self._data_1)
-        # self.read_10_first_lines()
+            print("Error: CSV data exhausted during initialization.")
+            self._data_1 = iter([])  # Create an empty iterator
+            self._data_2 = iter([])  # Create an empty iterator
 
     @property
     def _current_book_1(self):
@@ -291,25 +293,27 @@ class App(object):
                 yield t, bids, asks
 
     def read_10_first_lines(self):
-        for _ in iter(range(10)):
-            next(self._data_1)
-            next(self._data_2)
+        try:
+            for _ in range(10):
+                next(self._data_1)
+                next(self._data_2)
+        except StopIteration:
+            print("Error: Not enough data to read 10 lines.")
+            self._data_1 = iter([])  # Create an empty iterator
+            self._data_2 = iter([])  # Create an empty iterator
 
     @route('/query')
     def handle_query(self, x):
-        """ Takes no arguments, and yields the current top of the book;  the
-            best bid and ask and their sizes
-        """
+        """ Takes no arguments, and yields the current top of the book; the best bid and ask and their sizes """
         try:
             t1, bids1, asks1 = next(self._current_book_1)
             t2, bids2, asks2 = next(self._current_book_2)
-        except Exception as e:
-            print("error getting stocks...reinitalizing app")
-            self.__init__()
-            t1, bids1, asks1 = next(self._current_book_1)
-            t2, bids2, asks2 = next(self._current_book_2)
+        except StopIteration:
+            print("Error: Data exhausted in current book.")
+            return []
+
         t = t1 if t1 > t2 else t2
-        print('Query received @ t%s' % t)
+        print(f'Query received @ t{t}')
         return [{
             'id': x and x.get('id', None),
             'stock': 'ABC',
@@ -323,19 +327,19 @@ class App(object):
                 'size': asks1[0][1]
             }
         },
-            {
-                'id': x and x.get('id', None),
-                'stock': 'DEF',
-                'timestamp': str(t),
-                'top_bid': bids2 and {
-                    'price': bids2[0][0],
-                    'size': bids2[0][1]
-                },
-                'top_ask': asks2 and {
-                    'price': asks2[0][0],
-                    'size': asks2[0][1]
-                }
-            }]
+        {
+            'id': x and x.get('id', None),
+            'stock': 'DEF',
+            'timestamp': str(t),
+            'top_bid': bids2 and {
+                'price': bids2[0][0],
+                'size': bids2[0][1]
+            },
+            'top_ask': asks2 and {
+                'price': asks2[0][0],
+                'size': asks2[0][1]
+            }
+        }]
 
 
 ################################################################################
